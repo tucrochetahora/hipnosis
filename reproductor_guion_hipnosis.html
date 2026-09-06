@@ -1419,7 +1419,13 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
       ? 'Aviso: el modo ensayo está activo — las pausas grabadas no tendrán su duración real.'
       : '';
     try{
-      recordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          noiseSuppression: true,
+          echoCancellation: true,
+          autoGainControl: true
+        }
+      });
     } catch(err){
       recError.textContent = 'No se pudo acceder al micrófono. Revisa los permisos del navegador.';
       return;
