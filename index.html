@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Lector de guion — pausas cronometradas y grabación</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0f1113;
+    --panel: #16191d;
+    --panel-2: #1c2025;
+    --border: #292e33;
+    --text: #e9e6dd;
+    --text-muted: #8b9096;
+    --text-dim: #5c6167;
+    --accent: #c9a24a;
+    --accent-2: #dfb768;
+    --accent-soft: rgba(201,162,74,0.14);
+    --accent-dim: #8a7233;
+    --rec: #b5565d;
+    --rec-soft: rgba(181,86,93,0.16);
+    --serif: 'Lora', Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    height: 100%;
+    overflow-x: hidden;
+  }
+
+  body{
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  button{
+    font-family: var(--sans);
+    cursor: pointer;
+  }
+
+  button:focus-visible, textarea:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- fondo ambiental ---------- */
+
+  #ambient-bg{
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #ambient-bg::before, #ambient-bg::after{
+    content: '';
+    position: absolute;
+    width: 60vmax;
+    height: 60vmax;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.14;
+  }
+  #ambient-bg::before{
+    background: radial-gradient(circle, var(--accent), transparent 70%);
+    top: -22%;
+    left: -12%;
+    animation: driftA 46s ease-in-out infinite alternate;
+  }
+  #ambient-bg::after{
+    background: radial-gradient(circle, #3f5a76, transparent 70%);
+    bottom: -26%;
+    right: -16%;
+    animation: driftB 54s ease-in-out infinite alternate;
+  }
+  @keyframes driftA{
+    0%{ transform: translate(0,0) scale(1); }
+    100%{ transform: translate(6vw, 8vh) scale(1.1); }
+  }
+  @keyframes driftB{
+    0%{ transform: translate(0,0) scale(1); }
+    100%{ transform: translate(-5vw, -7vh) scale(1.06); }
+  }
+
+  /* ---------- pantalla de configuración ---------- */
+
+  #setup-screen{
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 20px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .setup-card{
+    width: 100%;
+    max-width: 640px;
+  }
+
+  .wordmark{
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+
+  .setup-card h1{
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    margin: 0 0 6px;
+    color: var(--text);
+  }
+
+  .setup-card p.lead{
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    margin: 0 0 20px;
+    max-width: 54ch;
+  }
+
+  textarea#script-input{
+    width: 100%;
+    height: 300px;
+    resize: vertical;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.86rem;
+    line-height: 1.55;
+    padding: 16px;
+    transition: border-color 0.15s ease;
+  }
+  textarea#script-input:hover{ border-color: var(--accent-dim); }
+
+  .hint{
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin: 10px 0 18px;
+    line-height: 1.5;
+  }
+  .hint code{
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: var(--mono);
+    color: var(--accent);
+  }
+
+  .script-stats{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 22px;
+  }
+  .stat{
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 14px;
+    min-width: 88px;
+  }
+  .stat-value{
+    font-family: var(--mono);
+    font-size: 1.02rem;
+    color: var(--accent);
+  }
+  .stat-label{
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
+
+  .setup-actions{
+    display: flex;
+    align-items: center;
+    gap: 8px 18px;
+    flex-wrap: wrap;
+  }
+
+  .btn-primary{
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #1a1305;
+    border: none;
+    border-radius: 8px;
+    padding: 13px 26px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    box-shadow: 0 4px 18px rgba(201,162,74,0.25);
+    transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn-primary:hover{ filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 6px 22px rgba(201,162,74,0.32); }
+  .btn-primary:active{ filter: brightness(0.95); transform: translateY(0); }
+
+  .link-btn{
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    padding: 4px 0;
+    cursor: pointer;
+  }
+  .link-btn:hover{ color: var(--text); }
+
+  input[type="file"][hidden]{ display: none; }
+
+  /* ---------- pantalla del lector ---------- */
+
+  #player-screen{
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    min-height: 100vh;
+    position: relative;
+    z-index: 1;
+  }
+
+  .progress-track{
+    height: 3px;
+    background: var(--panel-2);
+    width: 100%;
+  }
+  .progress-fill{
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    width: 0%;
+    transition: width 0.35s ease;
+  }
+
+  .time-row{
+    display: flex;
+    justify-content: center;
+    padding: 6px 20px 0;
+  }
+  .time-label{
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
+
+  .top-bar{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .top-bar .wordmark{ margin: 0; }
+
+  .top-bar .top-actions{
+    display: flex;
+    align-items: center;
+    gap: 10px 16px;
+    flex-wrap: wrap;
+  }
+
+  .segment-jump{
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 0.8rem;
+    font-family: var(--sans);
+    max-width: 220px;
+  }
+  .segment-jump:hover{ border-color: var(--accent-dim); }
+
+  .rehearsal-toggle{
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .rehearsal-toggle:hover{ border-color: var(--accent-dim); color: var(--text); }
+  .rehearsal-toggle.active{
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .stage{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px 24px 10px;
+    gap: 22px;
+  }
+
+  @keyframes fadeInUp{
+    from{ opacity: 0; transform: translateY(6px); }
+    to{ opacity: 1; transform: translateY(0); }
+  }
+  .stage > *{
+    animation: fadeInUp 0.4s ease both;
+  }
+
+  .segment-label{
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+    max-width: 70ch;
+  }
+
+  .direction-label{
+    font-family: var(--sans);
+    font-style: italic;
+    font-size: 0.92rem;
+    color: var(--text-muted);
+    max-width: 56ch;
+    line-height: 1.5;
+  }
+
+  .line-text{
+    font-family: var(--serif);
+    font-size: clamp(1.35rem, 3.6vw, 2.15rem);
+    line-height: 1.5;
+    max-width: 34ch;
+    color: var(--text);
+  }
+  .line-text strong{
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .line-text .inline-direction, .direction-label .inline-direction{
+    font-style: italic;
+    color: var(--text-muted);
+    font-size: 0.78em;
+  }
+
+  .next-pause-hint{
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--text-dim);
+  }
+
+  .pause-wrap{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .ring-wrap{
+    position: relative;
+    width: clamp(150px, 32vw, 220px);
+    height: clamp(150px, 32vw, 220px);
+  }
+  .ring-wrap svg{ width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring-track{ fill: none; stroke: var(--panel-2); stroke-width: 6; }
+  .ring-fill{
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 6;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 6px rgba(201,162,74,0.45));
+  }
+
+  .ring-number{
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: clamp(2rem, 8vw, 3.2rem);
+    color: var(--accent);
+  }
+
+  .pause-caption{
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  .skip-link{
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .skip-link:hover{ color: var(--text-muted); }
+
+  .end-message{
+    font-family: var(--serif);
+    font-size: 1.3rem;
+    color: var(--text);
+  }
+
+  .nav-bar{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    padding: 8px 20px 6px;
+  }
+
+  .nav-btn{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .nav-btn svg{ display: block; flex-shrink: 0; }
+  .nav-btn:hover{ border-color: var(--accent-dim); background: var(--panel-2); }
+  .nav-btn:disabled{ opacity: 0.35; cursor: default; }
+
+  .nav-btn.primary{
+    background: var(--accent-soft);
+    border-color: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .kbd-hint{
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    padding: 0 20px 14px;
+  }
+
+  /* ---------- barra de grabación ---------- */
+
+  .record-bar{
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    padding: 14px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    justify-content: center;
+  }
+
+  .rec-toggle{
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 9px 18px 9px 14px;
+    font-size: 0.88rem;
+  }
+  .rec-toggle:hover{ border-color: var(--rec); }
+  .rec-toggle.active{
+    border-color: var(--rec);
+    background: var(--rec-soft);
+    color: var(--text);
+  }
+  .rec-toggle:disabled{ opacity: 0.4; cursor: default; }
+  .rec-toggle:disabled:hover{ border-color: var(--border); }
+
+  .rec-dot{
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--rec);
+    display: inline-block;
+  }
+  .rec-toggle.active .rec-dot{
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  .rec-timer{
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    min-width: 4.5ch;
+  }
+
+  .rec-error{
+    font-size: 0.82rem;
+    color: var(--rec);
+    max-width: 40ch;
+  }
+
+  .rec-status{
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+
+  /* ---------- biblioteca de grabaciones ---------- */
+
+  .rec-library{
+    border-top: 1px solid var(--border);
+    background: var(--panel-2);
+    padding: 14px 20px 20px;
+  }
+
+  .rec-library-title{
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+
+  .rec-library-list{
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  .rec-empty{
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  .rec-row{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    transition: border-color 0.15s ease;
+  }
+  .rec-row:hover{ border-color: var(--accent-dim); }
+
+  .rec-row-top{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .rec-label-input{
+    background: none;
+    border: none;
+    border-bottom: 1px dashed transparent;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 0.88rem;
+    padding: 2px 0;
+    min-width: 120px;
+    flex: 1;
+  }
+  .rec-label-input::placeholder{ color: var(--text-dim); }
+  .rec-label-input:hover, .rec-label-input:focus{
+    border-bottom-color: var(--border);
+    outline: none;
+  }
+
+  .rec-meta{
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .rec-row audio{
+    width: 100%;
+    height: 32px;
+  }
+
+  .rec-row-actions{
+    display: flex;
+    gap: 18px;
+  }
+
+  .rec-mp3-btn, .rec-del-btn{
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: none;
+    font-size: 0.8rem;
+    padding: 2px 0;
+  }
+  .rec-mp3-btn{ color: var(--accent); }
+  .rec-mp3-btn:hover{ filter: brightness(1.2); }
+  .rec-mp3-btn:disabled{ opacity: 0.5; cursor: default; }
+  .rec-del-btn{ color: var(--rec); }
+  .rec-del-btn:hover{ filter: brightness(1.2); }
+
+  @media (max-width: 640px){
+    .top-bar{ flex-direction: column; align-items: flex-start; }
+    .top-actions{ width: 100%; }
+    .segment-jump{ flex: 1 1 auto; max-width: none; }
+  }
+
+  @media (max-width: 520px){
+    .record-bar{ justify-content: flex-start; }
+    .nav-bar{ gap: 12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .progress-fill{ transition: none; }
+    .rec-toggle.active .rec-dot{ animation: none; }
+    .ring-fill{ transition: none !important; }
+    .stage > *{ animation: none; }
+    #ambient-bg::before, #ambient-bg::after{ animation: none; }
+  }
+</style>
+</head>
+<body>
+
+  <div id="ambient-bg" aria-hidden="true"></div>
+
+  <!-- ============ PANTALLA 1: CONFIGURACIÓN ============ -->
+  <div id="setup-screen">
+    <div class="setup-card">
+      <div class="wordmark">presente</div>
+      <h1>Lector de guion con pausas cronometradas</h1>
+      <p class="lead">
+        Pega tu guion abajo. El programa detecta las marcas <code>(pausa N segundos)</code>
+        y las convierte en una cuenta regresiva real. El resto del texto avanza línea por
+        línea a tu ritmo.
+      </p>
+
+      <textarea id="script-input" spellcheck="false" placeholder="Pega aquí tu guion..."></textarea>
+
+      <p class="hint">
+        Formato reconocido: cualquier texto entre pausas, encabezados de segmento como
+        <code>### SEGMENTO 1 — TÍTULO</code>, acotaciones entre <code>[corchetes]</code>
+        (se muestran pero no se cronometran), y <code>**negrita**</code> para la palabra
+        de poder. Los cambios se guardan automáticamente en este navegador.
+      </p>
+
+      <div class="script-stats" id="script-stats">
+        <div class="stat"><span class="stat-value" id="stat-duration">—</span><span class="stat-label">duración estimada</span></div>
+        <div class="stat"><span class="stat-value" id="stat-segments">—</span><span class="stat-label">segmentos</span></div>
+        <div class="stat"><span class="stat-value" id="stat-pauses">—</span><span class="stat-label">pausas</span></div>
+        <div class="stat"><span class="stat-value" id="stat-silence">—</span><span class="stat-label">silencio total</span></div>
+        <div class="stat"><span class="stat-value" id="stat-words">—</span><span class="stat-label">palabras</span></div>
+      </div>
+
+      <div class="setup-actions">
+        <button class="btn-primary" id="start-btn">Empezar a leer</button>
+        <button class="link-btn" id="reset-default-btn">Restaurar guion de ejemplo</button>
+        <button class="link-btn" id="export-btn">Descargar guion (.txt)</button>
+        <label class="link-btn" for="import-input">Cargar guion desde archivo…</label>
+        <input type="file" id="import-input" accept=".txt,text/plain" hidden>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PANTALLA 2: LECTOR ============ -->
+  <div id="player-screen">
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="time-row"><span class="time-label" id="time-label">0:00 / 0:00 · estimado</span></div>
+
+    <div class="top-bar">
+      <div class="wordmark">presente</div>
+      <div class="top-actions">
+        <select class="segment-jump" id="segment-jump" aria-label="Ir a segmento">
+          <option value="">Ir a segmento…</option>
+        </select>
+        <button class="rehearsal-toggle" id="rehearsal-toggle" aria-pressed="false">Modo ensayo</button>
+        <button class="link-btn" id="edit-btn">Editar guion</button>
+        <button class="link-btn" id="restart-btn">Reiniciar</button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage" aria-live="polite" aria-atomic="true">
+      <!-- contenido dinámico -->
+    </div>
+
+    <div class="nav-bar" id="nav-bar">
+      <button class="nav-btn" id="prev-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        Anterior
+      </button>
+      <button class="nav-btn primary" id="next-btn">
+        Siguiente
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+    </div>
+    <div class="kbd-hint">espacio / → siguiente · ← anterior · R grabar</div>
+
+    <div class="record-bar">
+      <button class="rec-toggle" id="rec-toggle">
+        <span class="rec-dot"></span>
+        <span id="rec-label">Grabar audio</span>
+      </button>
+      <span class="rec-timer" id="rec-timer">00:00</span>
+      <span class="rec-status" id="rec-status"></span>
+      <span class="rec-error" id="rec-error"></span>
+    </div>
+
+    <div class="rec-library">
+      <div class="rec-library-title">grabaciones guardadas</div>
+      <div class="rec-library-list" id="rec-library-list"></div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     0. GUION DE EJEMPLO (precargado la primera vez)
+     ============================================================ */
+
+  const DEFAULT_SCRIPT = `[Voz: registro bajo, lento, melódico; enfatiza las **negritas** alargando ligeramente la palabra; NO leer en voz alta las acotaciones entre corchetes, ni la palabra "pausa", ni los segundos indicados — son silencio real, cronometrado.]
+
+### SEGMENTO 0 — INTRODUCCIÓN HABLADA
+
+[Voz normal, no es la voz de trance. Se lee antes de iniciar el audio.]
+
+Antes de empezar, algo breve que vale la pena tener claro:
+
+La eyaculación precoz y la ansiedad de rendimiento son de las dificultades sexuales más comunes en hombres adultos — no son un defecto de carácter ni una falla de "hombría".
+
+Buena parte de la presión que sientes probablemente no nació contigo: se construyó viendo pornografía, un formato editado, actuado y filmado para durar en pantalla, no una referencia real de cuerpos, tiempos o tamaños.
+
+Este audio no promete que "vas a aguantar más". No es ese el objetivo, y perseguir ese objetivo directamente suele empeorar la ansiedad.
+
+El objetivo es otro: que tu atención pueda estar en lo que sientes, en vez de estar vigilando un reloj o comparándote con una pantalla, y que tu cuerpo deje de leer la excitación, la sensibilidad o esa presión en el pecho como una amenaza.
+
+[Pregúntate internamente, con honestidad:]
+
+¿Estás dispuesto a soltar, aunque sea por estos minutos, la idea de que tu valor depende de cuánto duras?
+
+¿Estás dispuesto a escuchar esto sin exigirte nada mientras lo haces?
+
+Si tu respuesta interna es sí, puedes continuar con el audio.
+
+### SEGMENTO 1 — TRANCE INICIAL (0:00–2:00)
+
+[Solo sonido de fondo: lluvia suave o pulso binaural 4–7 Hz. Si hay antecedente de mareo o desorientación, usar únicamente lluvia o ruido blanco, nunca binaural. No se lee ningún texto en este segmento.]
+
+(pausa 120 segundos)
+
+### SEGMENTO 2 — INDUCCIÓN POR RELAJACIÓN PROGRESIVA, DE CABEZA A PIES (2:00–5:30)
+
+Vamos a relajar tu cuerpo, parte por parte, de la cabeza a los pies.
+
+(pausa 3 segundos)
+
+Lleva tu atención a la parte más alta de tu cabeza… (pausa 3 segundos) y permite que ahí, en el cuero cabelludo, algo empiece a soltarse.
+
+(pausa 5 segundos)
+
+Deja que esa relajación baje a tu frente… (pausa 3 segundos) y que tu frente se suavice, sin ningún esfuerzo.
+
+(pausa 5 segundos)
+
+Ahora lleva tu atención a tus ojos… (pausa 3 segundos) a los párpados… (pausa 3 segundos) y deja que los músculos alrededor de tus ojos se aflojen por completo. (pausa 5 segundos) Cuanto más se aflojan tus ojos… (pausa 3 segundos) más profundo se vuelve todo lo demás.
+
+(pausa 10 segundos)
+
+Deja que esa misma relajación baje ahora a tu mandíbula… (pausa 3 segundos) a tu boca… (pausa 3 segundos) y permite que tus labios y tu lengua se aflojen, como si ya no tuvieran nada que sostener.
+
+(pausa 5 segundos)
+
+Baja ahora a tu cuello… (pausa 3 segundos) y a tus hombros… (pausa 3 segundos) dejando que ese peso que a veces cargas ahí, simplemente se suelte.
+
+(pausa 5 segundos)
+
+Esa relajación sigue bajando por tus brazos… (pausa 3 segundos) hasta tus manos… (pausa 3 segundos) hasta la punta de cada dedo.
+
+(pausa 10 segundos)
+
+Y baja también a tu pecho… (pausa 3 segundos) permitiendo que cada respiración sea un poco más amplia, un poco más fácil.
+
+(pausa 5 segundos)
+
+Baja a tu estómago… (pausa 3 segundos) soltando ahí cualquier cosa que estuviera guardada.
+
+(pausa 5 segundos)
+
+Y sigue bajando, por tu espalda… (pausa 3 segundos) por tus caderas… (pausa 3 segundos) por tus piernas… (pausa 3 segundos) hasta llegar a tus pies.
+
+(pausa 10 segundos)
+
+Y ahora, con todo tu cuerpo relajado, de la cabeza a los pies… (pausa 5 segundos) voy a contar de cinco a uno… (pausa 3 segundos) y con cada número que digo, te vas a sentir el doble de relajado de lo que estabas con el anterior.
+
+(pausa 5 segundos)
+
+Cinco… (pausa 3 segundos) más relajado. (pausa 3 segundos) Cuatro… (pausa 3 segundos) más profundo. (pausa 3 segundos) Tres… (pausa 3 segundos) soltando un poco más. (pausa 3 segundos) Dos… (pausa 3 segundos) casi completamente en calma. (pausa 3 segundos) Uno… (pausa 5 segundos) completamente **presente**, en tu cuerpo, aquí.
+
+(pausa 10 segundos)
+
+(pausa 15 segundos)
+
+### SEGMENTO 3 — SUGESTIONES (5:30–13:00)
+
+Lo que sientes no es tu enemigo. (pausa 3 segundos) Es información. (pausa 3 segundos) Y toda información se puede usar.
+
+(pausa 5 segundos)
+
+Tú eres un hombre completo, con o sin cronómetro. (pausa 3 segundos) Tu valor no se mide en minutos, se mide en que estás aquí, real, con otra persona real. (pausa 5 segundos) Y mereces sentir placer sin tener que demostrar nada a nadie. (pausa 10 segundos)
+
+Cuando estás con alguien, tu atención puede estar en lo que sientes en este momento, no en lo que crees que deberías durar. (pausa 3 segundos) Notar tu piel, notar el contacto, notar el aire entrando y saliendo… eso es estar **presente**. (pausa 5 segundos) Y estar **presente** es más fácil de lo que pensabas. (pausa 10 segundos)
+
+Tu cuerpo ya sabe regular su propia excitación, igual que ya sabe regular tu respiración cuando duermes. (pausa 3 segundos) Esa capacidad no la tienes que inventar: ya está en ti, y se está reorganizando ahora mismo, mientras escuchas esto. (pausa 10 segundos)
+
+Esa sensación de excitación intensa y rápida que conoces… (pausa 3 segundos) no es un enemigo que hay que apagar. (pausa 3 segundos) Es una señal de que tu cuerpo está vivo, está respondiendo, está encendido. (pausa 5 segundos) Y una señal se puede leer… (pausa 3 segundos) se puede escuchar… (pausa 3 segundos) sin salir corriendo detrás de ella. (pausa 10 segundos)
+
+La sensibilidad que sientes en el pene no es un defecto que corregir a la fuerza. (pausa 3 segundos) Es información. (pausa 3 segundos) Y así como en algún momento bajaste el volumen de un sonido que te parecía demasiado fuerte, tu cuerpo puede aprender, poco a poco, a leer esa información sin sobresaltarse. (pausa 10 segundos)
+
+Ese vacío que a veces notas en el estómago, esa presión en el pecho justo antes o durante el encuentro… (pausa 5 segundos) no es una alarma de peligro. (pausa 3 segundos) Es energía… (pausa 3 segundos) energía que todavía no ha encontrado su cauce. (pausa 5 segundos) Y cuando exhalas despacio… (pausa 3 segundos) esa energía deja de acumularse en el pecho y en el estómago, y se reparte, **presente**, por todo tu cuerpo, como algo que fluye, no como algo que aprieta. (pausa 10 segundos)
+
+Y no hace falta que controles cada… (pausa 10 segundos) …músculo. Tu cuerpo, cuando está **presente**, ya sabe organizarse solo.
+
+(pausa 5 segundos)
+
+Si en este momento aparece alguna imagen, un recuerdo, una sensación de color… es tuya, solo tuya, y puedes dejarla estar o dejarla ir. (pausa 5 segundos)
+
+Tu cuerpo tiene su propio ritmo, un ritmo que no necesita ser espectacular para ser suficiente. (pausa 3 segundos) Suficiente es una palabra que también te pertenece. (pausa 10 segundos)
+
+Las imágenes que alguna vez viste en la pornografía fueron editadas, cortadas, actuadas por profesionales bajo luces y ángulos que no existen en un cuarto real. (pausa 3 segundos) Tu pene, tal como es, es tu pene real, capaz de sentir y de dar placer real. (pausa 3 segundos) Y no importa si eyaculas en dos minutos o en veinte: tu cuerpo responde a su propio ritmo, no al cronómetro de un video editado. (pausa 5 segundos) La hombría nunca dependió de los minutos que duras. (pausa 10 segundos)
+
+El orgasmo no es una meta que hay que alcanzar antes de que se acabe el tiempo. (pausa 3 segundos) Es solo un momento, entre muchos otros momentos, dentro de todo lo que tu cuerpo puede sentir. (pausa 5 segundos) Y cuando dejas de perseguirlo, muchas veces, es cuando más plenamente llega. (pausa 10 segundos)
+
+Y mientras más sueltas la idea de tener que demostrar algo… (pausa 10 segundos) …más disponible está tu cuerpo para simplemente sentir.
+
+(pausa 5 segundos)
+
+Cuanto más te permites estar **presente**, en lugar de vigilar el reloj o comparar tu cuerpo con lo que viste alguna vez en una pantalla, más espacio hay para el placer compartido, para la conexión real con la otra persona. (pausa 5 segundos) Y esa conexión vale más que cualquier cifra en un cronómetro. (pausa 10 segundos)
+
+(pausa 15 segundos)
+
+### SEGMENTO 4 — PROCESAMIENTO (13:00–14:00)
+
+Tu mente ya escuchó todo lo que necesitaba escuchar. (pausa 3 segundos) Ahora, tu mente procesa estas instrucciones de la manera correcta para ti.
+
+(pausa 5 segundos)
+
+Notarás, quizás esta misma semana, que tu respiración se hace más lenta de forma automática en los momentos de cercanía. (pausa 3 segundos) Notarás, en los próximos días, que puedes sentir tu cuerpo sin juzgarlo. (pausa 3 segundos) Y notarás, poco a poco, en las próximas semanas, que la palabra **presente** aparece en tu mente justo cuando la necesitas. (pausa 10 segundos)
+
+(pausa 15 segundos)
+
+### SEGMENTO 5 — DERIVA + REORIENTACIÓN (14:00–19:00)
+
+[Silencio con sonido ambiente.] (pausa 120 segundos)
+
+Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundos) o dos… (pausa 3 segundos) o tres respiraciones más profundas. (pausa 5 segundos) Puedes mover los dedos de las manos, de los pies. (pausa 3 segundos) Estirarte, si tu cuerpo lo pide. (pausa 5 segundos) Y, a tu propio ritmo, abrir los ojos… (pausa 5 segundos) despierto, descansado, y **presente**.
+
+(pausa 10 segundos)
+
+[Fin del audio.]`;
+
+  /* ============================================================
+     1. PERSISTENCIA (IndexedDB)
+     ============================================================ */
+
+  const DB_NAME = 'lector-guion-db';
+  const STORE = 'kv';
+  const RECORDINGS_STORE = 'recordings';
+
+  function openDB(){
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+        if (!db.objectStoreNames.contains(RECORDINGS_STORE)){
+          db.createObjectStore(RECORDINGS_STORE, { keyPath: 'id', autoIncrement: true });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbSet(key, value){
+    try{
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(value, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch(e){ /* almacenamiento no disponible: seguimos sin persistencia */ }
+  }
+
+  async function idbGet(key){
+    try{
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } catch(e){ return undefined; }
+  }
+
+  async function idbDelete(key){
+    try{
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch(e){ /* nada que migrar */ }
+  }
+
+  async function addRecording(record){
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(RECORDINGS_STORE, 'readwrite');
+      const req = tx.objectStore(RECORDINGS_STORE).add(record);
+      req.onsuccess = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function getAllRecordings(){
+    try{
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(RECORDINGS_STORE, 'readonly');
+        const req = tx.objectStore(RECORDINGS_STORE).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    } catch(e){ return []; }
+  }
+
+  async function deleteRecording(id){
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(RECORDINGS_STORE, 'readwrite');
+      tx.objectStore(RECORDINGS_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function updateRecording(id, patch){
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(RECORDINGS_STORE, 'readwrite');
+      const store = tx.objectStore(RECORDINGS_STORE);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const rec = getReq.result;
+        if (rec){ Object.assign(rec, patch); store.put(rec); }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  let saveTimer = null;
+  function scheduleSaveScript(text){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => idbSet('script', text), 400);
+  }
+
+  /* ============================================================
+     2. PARSER DEL GUION
+     ============================================================ */
+
+  const PAUSE_RE = /\(\s*pausa\s+(\d+)\s*segundos?[^)]*\)/gi;
+
+  function escapeHtml(s){
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function mdInline(text){
+    return escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[(.+?)\]/g, '<span class="inline-direction">[$1]</span>');
+  }
+
+  function classifyParagraph(raw){
+    const p = raw.trim();
+    if (/^#{1,6}\s*/.test(p)){
+      return { type: 'header', text: p.replace(/^#{1,6}\s*/, '') };
+    }
+    const bracketCount = (p.match(/\[/g) || []).length;
+    if (bracketCount === 1 && /^\[[\s\S]*\]$/.test(p)){
+      return { type: 'direction', text: p.replace(/^\[|\]$/g, '').trim() };
+    }
+    return { type: 'line', text: p };
+  }
+
+  function pushTextBlocks(seq, chunk){
+    const paras = chunk.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+    for (const p of paras){ seq.push(classifyParagraph(p)); }
+  }
+
+  function parseScript(raw){
+    const seq = [];
+    let lastIndex = 0;
+    let match;
+    PAUSE_RE.lastIndex = 0;
+    while ((match = PAUSE_RE.exec(raw)) !== null){
+      const before = raw.slice(lastIndex, match.index);
+      pushTextBlocks(seq, before);
+      seq.push({ type: 'pause', seconds: parseInt(match[1], 10) });
+      lastIndex = PAUSE_RE.lastIndex;
+    }
+    pushTextBlocks(seq, raw.slice(lastIndex));
+    return seq;
+  }
+
+  /* ============================================================
+     3. ANÁLISIS Y ESTIMACIÓN DE DURACIÓN
+     ============================================================ */
+
+  const READING_WPM = 110; // ritmo lento y deliberado, típico de narración hipnótica
+
+  function formatMinSec(totalSeconds){
+    const s = Math.max(0, Math.round(totalSeconds));
+    const mm = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    return mm + ':' + ss;
+  }
+
+  function formatRingLabel(totalSeconds){
+    const s = Math.max(0, Math.round(totalSeconds));
+    return s >= 60 ? formatMinSec(s) : String(s);
+  }
+
+  function analyzeScript(seq){
+    let cum = 0, pauseSeconds = 0, pauseCount = 0, segmentCount = 0, wordCount = 0;
+    for (const item of seq){
+      item.startAt = cum;
+      if (item.type === 'pause'){
+        item.duration = item.seconds;
+        pauseSeconds += item.seconds;
+        pauseCount++;
+      } else if (item.type === 'line'){
+        const words = item.text.trim().split(/\s+/).filter(Boolean).length;
+        wordCount += words;
+        item.duration = Math.max(1.2, (words / READING_WPM) * 60);
+      } else {
+        if (item.type === 'header') segmentCount++;
+        item.duration = 1.5;
+      }
+      cum += item.duration;
+    }
+    return { totalSeconds: cum, pauseSeconds, pauseCount, segmentCount, wordCount };
+  }
+
+  /* ============================================================
+     4. ESTADO Y NAVEGACIÓN
+     ============================================================ */
+
+  let sequence = [];
+  let idx = -1;
+  let pauseCancel = null;
+  let totalEstimatedSeconds = 0;
+
+  const setupScreen = document.getElementById('setup-screen');
+  const playerScreen = document.getElementById('player-screen');
+  const scriptInput = document.getElementById('script-input');
+  const stage = document.getElementById('stage');
+  const navBar = document.getElementById('nav-bar');
+  const prevBtn = document.getElementById('prev-btn');
+  const nextBtn = document.getElementById('next-btn');
+  const progressFill = document.getElementById('progress-fill');
+  const timeLabel = document.getElementById('time-label');
+
+  const RING_R = 54;
+  const RING_CIRC = 2 * Math.PI * RING_R;
+
+  function updateProgress(){
+    const item = sequence[idx];
+    const before = item ? item.startAt : totalEstimatedSeconds;
+    const pct = totalEstimatedSeconds > 0 ? Math.min(100, (before / totalEstimatedSeconds) * 100) : 0;
+    progressFill.style.width = pct + '%';
+    timeLabel.textContent = formatMinSec(before) + ' / ' + formatMinSec(totalEstimatedSeconds) + ' · estimado';
+  }
+
+  function clearPauseTimer(){
+    if (pauseCancel){ pauseCancel(); pauseCancel = null; }
+  }
+
+  function renderTextItem(item){
+    navBar.style.display = 'flex';
+    prevBtn.disabled = idx <= 0;
+    nextBtn.disabled = false;
+    nextBtn.textContent = '';
+    nextBtn.innerHTML = 'Siguiente <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+
+    const next = sequence[idx + 1];
+    const hintHtml = (next && next.type === 'pause')
+      ? `<div class="next-pause-hint">a continuación · pausa ${formatRingLabel(next.seconds)}</div>`
+      : '';
+
+    if (item.type === 'header'){
+      stage.innerHTML = `<div class="segment-label">${escapeHtml(item.text)}</div>${hintHtml}`;
+    } else if (item.type === 'direction'){
+      stage.innerHTML = `<div class="direction-label">[ ${mdInline(item.text)} ]</div>${hintHtml}`;
+    } else {
+      stage.innerHTML = `<div class="line-text">${mdInline(item.text)}</div>${hintHtml}`;
+    }
+  }
+
+  function renderPause(item){
+    navBar.style.display = 'none';
+    const effectiveSeconds = rehearsalMode ? Math.max(1, Math.round(item.seconds / REHEARSAL_DIVISOR)) : item.seconds;
+
+    stage.innerHTML = `
+      <div class="pause-wrap">
+        <div class="ring-wrap">
+          <svg viewBox="0 0 120 120">
+            <circle class="ring-track" cx="60" cy="60" r="${RING_R}"></circle>
+            <circle class="ring-fill" id="ring-fill" cx="60" cy="60" r="${RING_R}"
+                    stroke-dasharray="${RING_CIRC}" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="ring-number" id="ring-number">${formatRingLabel(effectiveSeconds)}</div>
+        </div>
+        <div class="pause-caption">${rehearsalMode ? `pausa · ensayo (real ${item.seconds}s)` : 'pausa'}</div>
+        <button class="skip-link" id="skip-pause-btn">saltar pausa</button>
+      </div>
+    `;
+
+    const ringFill = document.getElementById('ring-fill');
+    const ringNumber = document.getElementById('ring-number');
+    const skipBtn = document.getElementById('skip-pause-btn');
+
+    const total = effectiveSeconds;
+    const start = performance.now();
+    let done = false;
+
+    function finish(){
+      if (done) return;
+      done = true;
+      clearInterval(intervalId);
+      advance();
+    }
+
+    skipBtn.addEventListener('click', finish);
+
+    // anima el anillo de lleno a vacío a lo largo de `total` segundos reales
+    requestAnimationFrame(() => {
+      ringFill.style.transition = `stroke-dashoffset ${total}s linear`;
+      requestAnimationFrame(() => { ringFill.style.strokeDashoffset = String(RING_CIRC); });
+    });
+
+    function tick(){
+      const elapsed = (performance.now() - start) / 1000;
+      const remaining = Math.max(0, Math.ceil(total - elapsed));
+      ringNumber.textContent = formatRingLabel(remaining);
+      if (elapsed >= total){ finish(); }
+    }
+    const intervalId = setInterval(tick, 200);
+
+    pauseCancel = () => { clearInterval(intervalId); done = true; };
+  }
+
+  function renderEnd(){
+    navBar.style.display = 'flex';
+    prevBtn.disabled = false;
+    nextBtn.disabled = true;
+    stage.innerHTML = `<div class="end-message">Fin del guion.</div>`;
+  }
+
+  function renderCurrent(){
+    clearPauseTimer();
+    updateProgress();
+
+    if (idx >= sequence.length){ renderEnd(); return; }
+    if (idx < 0) idx = 0;
+
+    const item = sequence[idx];
+    if (item.type === 'pause'){ renderPause(item); }
+    else { renderTextItem(item); }
+  }
+
+  function advance(){
+    idx++;
+    renderCurrent();
+  }
+
+  function goBack(){
+    clearPauseTimer();
+    if (idx > 0) idx--;
+    renderCurrent();
+  }
+
+  nextBtn.addEventListener('click', () => { if (!nextBtn.disabled) advance(); });
+  prevBtn.addEventListener('click', goBack);
+
+  document.addEventListener('keydown', (e) => {
+    if (playerScreen.style.display === 'none' || !playerScreen.style.display) return;
+    const activeTag = document.activeElement && document.activeElement.tagName;
+    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+
+    if (e.code === 'Space' || e.code === 'ArrowRight'){
+      e.preventDefault();
+      const item = sequence[idx];
+      if (item && item.type === 'pause') { /* la pausa avanza sola o con "saltar" */ }
+      else if (!nextBtn.disabled) advance();
+    } else if (e.code === 'ArrowLeft'){
+      e.preventDefault();
+      const item = sequence[idx];
+      if (item && item.type === 'pause') return;
+      goBack();
+    } else if (e.key === 'r' || e.key === 'R'){
+      if (canRecord){ if (isRecording) stopRecording(); else startRecording(); }
+    }
+  });
+
+  /* ============================================================
+     5. ARRANQUE, EDICIÓN, IMPORT/EXPORT Y ESTADÍSTICAS EN VIVO
+     ============================================================ */
+
+  const startBtn = document.getElementById('start-btn');
+  const editBtn = document.getElementById('edit-btn');
+  const restartBtn = document.getElementById('restart-btn');
+  const resetDefaultBtn = document.getElementById('reset-default-btn');
+  const exportBtn = document.getElementById('export-btn');
+  const importInput = document.getElementById('import-input');
+
+  const statDuration = document.getElementById('stat-duration');
+  const statSegments = document.getElementById('stat-segments');
+  const statPauses = document.getElementById('stat-pauses');
+  const statSilence = document.getElementById('stat-silence');
+  const statWords = document.getElementById('stat-words');
+
+  let statsTimer = null;
+  function updateStats(){
+    clearTimeout(statsTimer);
+    statsTimer = setTimeout(() => {
+      const seq = parseScript(scriptInput.value);
+      const stats = analyzeScript(seq);
+      statDuration.textContent = seq.length ? '≈ ' + formatMinSec(stats.totalSeconds) : '—';
+      statSegments.textContent = String(stats.segmentCount);
+      statPauses.textContent = String(stats.pauseCount);
+      statSilence.textContent = formatMinSec(stats.pauseSeconds);
+      statWords.textContent = String(stats.wordCount);
+    }, 250);
+  }
+
+  function populateSegmentJump(){
+    const options = ['<option value="">Ir a segmento…</option>'];
+    sequence.forEach((item, i) => {
+      if (item.type === 'header') options.push(`<option value="${i}">${escapeHtml(item.text)}</option>`);
+    });
+    segmentJump.innerHTML = options.join('');
+  }
+
+  function goToPlayer(){
+    const raw = scriptInput.value;
+    sequence = parseScript(raw);
+    if (sequence.length === 0){
+      alert('El guion está vacío. Pega un texto primero.');
+      return;
+    }
+    totalEstimatedSeconds = analyzeScript(sequence).totalSeconds;
+    populateSegmentJump();
+    idx = 0;
+    setupScreen.style.display = 'none';
+    playerScreen.style.display = 'flex';
+    renderCurrent();
+  }
+
+  startBtn.addEventListener('click', goToPlayer);
+
+  editBtn.addEventListener('click', () => {
+    clearPauseTimer();
+    playerScreen.style.display = 'none';
+    setupScreen.style.display = 'flex';
+  });
+
+  restartBtn.addEventListener('click', () => {
+    clearPauseTimer();
+    idx = 0;
+    renderCurrent();
+  });
+
+  resetDefaultBtn.addEventListener('click', () => {
+    scriptInput.value = DEFAULT_SCRIPT;
+    scheduleSaveScript(DEFAULT_SCRIPT);
+    updateStats();
+  });
+
+  scriptInput.addEventListener('input', () => {
+    scheduleSaveScript(scriptInput.value);
+    updateStats();
+  });
+
+  exportBtn.addEventListener('click', () => {
+    const blob = new Blob([scriptInput.value], { type: 'text/plain;charset=utf-8' });
+    triggerDownload(blob, 'guion-hipnosis.txt');
+  });
+
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files && importInput.files[0];
+    if (!file) return;
+    const text = await file.text();
+    scriptInput.value = text;
+    scheduleSaveScript(text);
+    updateStats();
+    importInput.value = '';
+  });
+
+  /* ============================================================
+     6. SEGMENTOS Y MODO ENSAYO
+     ============================================================ */
+
+  const segmentJump = document.getElementById('segment-jump');
+  const rehearsalToggle = document.getElementById('rehearsal-toggle');
+
+  let rehearsalMode = false;
+  const REHEARSAL_DIVISOR = 6;
+
+  segmentJump.addEventListener('change', () => {
+    const v = segmentJump.value;
+    if (v === '') return;
+    clearPauseTimer();
+    idx = Number(v);
+    renderCurrent();
+    segmentJump.value = '';
+  });
+
+  rehearsalToggle.addEventListener('click', () => {
+    rehearsalMode = !rehearsalMode;
+    rehearsalToggle.classList.toggle('active', rehearsalMode);
+    rehearsalToggle.setAttribute('aria-pressed', String(rehearsalMode));
+  });
+
+  /* ============================================================
+     7. GRABACIÓN DE AUDIO
+     ============================================================ */
+
+  const recToggle = document.getElementById('rec-toggle');
+  const recLabel = document.getElementById('rec-label');
+  const recTimer = document.getElementById('rec-timer');
+  const recStatus = document.getElementById('rec-status');
+  const recError = document.getElementById('rec-error');
+  const libraryList = document.getElementById('rec-library-list');
+
+  let mediaRecorder = null;
+  let recordStream = null;
+  let recordedChunks = [];
+  let recordStart = 0;
+  let recordTimerId = null;
+  let isRecording = false;
+
+  const canRecord = !!(navigator.mediaDevices && window.MediaRecorder);
+  if (!canRecord){
+    recError.textContent = 'Este navegador no permite grabar audio aquí (o el archivo se abrió sin conexión segura). Prueba a abrirlo desde un servidor local (http://localhost).';
+    recToggle.disabled = true;
+  }
+
+  function pickMimeType(){
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    for (const c of candidates){
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) return c;
+    }
+    return '';
+  }
+
+  function extFromMime(mime){
+    if (!mime) return 'webm';
+    if (mime.includes('ogg')) return 'ogg';
+    if (mime.includes('mp4')) return 'm4a';
+    return 'webm';
+  }
+
+  function formatElapsed(ms){
+    const s = Math.floor(ms / 1000);
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return mm + ':' + ss;
+  }
+
+  function updateRecTimer(){
+    recTimer.textContent = formatElapsed(performance.now() - recordStart);
+  }
+
+  async function startRecording(){
+    recError.textContent = rehearsalMode
+      ? 'Aviso: el modo ensayo está activo — las pausas grabadas no tendrán su duración real.'
+      : '';
+    try{
+      recordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch(err){
+      recError.textContent = 'No se pudo acceder al micrófono. Revisa los permisos del navegador.';
+      return;
+    }
+    recordedChunks = [];
+    const mimeType = pickMimeType();
+    try{
+      mediaRecorder = mimeType ? new MediaRecorder(recordStream, { mimeType }) : new MediaRecorder(recordStream);
+    } catch(err){
+      mediaRecorder = new MediaRecorder(recordStream);
+    }
+    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = onRecordingStop;
+    mediaRecorder.start();
+
+    isRecording = true;
+    recordStart = performance.now();
+    recordTimerId = setInterval(updateRecTimer, 500);
+    recToggle.classList.add('active');
+    recLabel.textContent = 'Detener grabación';
+    recStatus.textContent = '';
+  }
+
+  function stopRecording(){
+    if (mediaRecorder && mediaRecorder.state !== 'inactive'){ mediaRecorder.stop(); }
+    if (recordStream){ recordStream.getTracks().forEach(t => t.stop()); }
+    clearInterval(recordTimerId);
+    isRecording = false;
+    recToggle.classList.remove('active');
+    recLabel.textContent = 'Grabar audio';
+  }
+
+  async function onRecordingStop(){
+    try{
+      const mime = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+      const blob = new Blob(recordedChunks, { type: mime });
+      const ext = extFromMime(mime);
+      const durationMs = performance.now() - recordStart;
+      await addRecording({ blob, mime, ext, label: '', createdAt: Date.now(), durationMs });
+      recStatus.textContent = 'Grabación guardada.';
+      setTimeout(() => { recStatus.textContent = ''; }, 3000);
+      await renderRecordingsLibrary();
+    } catch(err){
+      recError.textContent = 'No se pudo guardar la grabación en este navegador.';
+    }
+  }
+
+  recToggle.addEventListener('click', () => {
+    if (!canRecord) return;
+    if (isRecording) stopRecording();
+    else startRecording();
+  });
+
+  /* ============================================================
+     8. CONVERSIÓN A MP3 (192 kbps) Y BIBLIOTECA DE GRABACIONES
+     ============================================================ */
+
+  const ICON_DOWNLOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></svg>';
+  const ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
+  const MP3_BITRATE_KBPS = 192;
+  const recordingUrlCache = new Map();
+
+  function pruneRecordingUrlCache(currentIds){
+    for (const [id, url] of recordingUrlCache){
+      if (!currentIds.has(id)){
+        URL.revokeObjectURL(url);
+        recordingUrlCache.delete(id);
+      }
+    }
+  }
+
+  function getRecordingUrl(rec){
+    let url = recordingUrlCache.get(rec.id);
+    if (!url){
+      url = URL.createObjectURL(rec.blob);
+      recordingUrlCache.set(rec.id, url);
+    }
+    return url;
+  }
+
+  function floatTo16BitPCM(floatArray){
+    const out = new Int16Array(floatArray.length);
+    for (let i = 0; i < floatArray.length; i++){
+      const s = Math.max(-1, Math.min(1, floatArray[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return out;
+  }
+
+  async function blobToMp3(blob, bitrateKbps){
+    if (typeof lamejs === 'undefined'){
+      throw new Error('lamejs no está disponible (sin conexión a internet para cargar el encoder).');
+    }
+    const arrayBuffer = await blob.arrayBuffer();
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    let audioBuffer;
+    try{
+      audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    } finally {
+      audioCtx.close();
+    }
+    const channels = Math.min(audioBuffer.numberOfChannels, 2);
+    const sampleRate = audioBuffer.sampleRate;
+    const encoder = new lamejs.Mp3Encoder(channels, sampleRate, bitrateKbps);
+    const blockSize = 1152;
+    const left = floatTo16BitPCM(audioBuffer.getChannelData(0));
+    const right = channels > 1 ? floatTo16BitPCM(audioBuffer.getChannelData(1)) : null;
+    const mp3Chunks = [];
+    for (let i = 0; i < left.length; i += blockSize){
+      const leftChunk = left.subarray(i, i + blockSize);
+      let buf;
+      if (right){
+        const rightChunk = right.subarray(i, i + blockSize);
+        buf = encoder.encodeBuffer(leftChunk, rightChunk);
+      } else {
+        buf = encoder.encodeBuffer(leftChunk);
+      }
+      if (buf.length > 0) mp3Chunks.push(buf);
+    }
+    const endBuf = encoder.flush();
+    if (endBuf.length > 0) mp3Chunks.push(endBuf);
+    return new Blob(mp3Chunks, { type: 'audio/mp3' });
+  }
+
+  function triggerDownload(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  async function onDownloadMp3Click(e){
+    const btn = e.currentTarget;
+    const id = Number(btn.dataset.id);
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>Convirtiendo…</span>';
+    try{
+      const records = await getAllRecordings();
+      const rec = records.find(r => r.id === id);
+      if (!rec) throw new Error('grabación no encontrada');
+      const stamp = new Date(rec.createdAt).toISOString().replace(/[:.]/g, '-');
+      const mp3Blob = await blobToMp3(rec.blob, MP3_BITRATE_KBPS);
+      triggerDownload(mp3Blob, `grabacion-hipnosis-${stamp}-192kbps.mp3`);
+    } catch(err){
+      alert('No se pudo convertir a MP3 en este navegador. Se descargará en el formato original.');
+      const records = await getAllRecordings();
+      const rec = records.find(r => r.id === id);
+      if (rec){
+        const stamp = new Date(rec.createdAt).toISOString().replace(/[:.]/g, '-');
+        triggerDownload(rec.blob, `grabacion-hipnosis-${stamp}.${rec.ext}`);
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+
+  async function onDeleteRecordingClick(e){
+    const id = Number(e.currentTarget.dataset.id);
+    if (!confirm('¿Borrar esta grabación? No se puede deshacer.')) return;
+    await deleteRecording(id);
+    await renderRecordingsLibrary();
+  }
+
+  async function renderRecordingsLibrary(){
+    const records = await getAllRecordings();
+    records.sort((a, b) => b.createdAt - a.createdAt);
+    pruneRecordingUrlCache(new Set(records.map(r => r.id)));
+
+    if (records.length === 0){
+      libraryList.innerHTML = '<div class="rec-empty">Aún no hay grabaciones guardadas.</div>';
+      return;
+    }
+
+    libraryList.innerHTML = '';
+    for (const rec of records){
+      const url = getRecordingUrl(rec);
+      const date = new Date(rec.createdAt);
+      const dateLabel = date.toLocaleString('es-ES', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      const durLabel = formatElapsed(rec.durationMs || 0);
+
+      const row = document.createElement('div');
+      row.className = 'rec-row';
+
+      const top = document.createElement('div');
+      top.className = 'rec-row-top';
+
+      const labelInput = document.createElement('input');
+      labelInput.className = 'rec-label-input';
+      labelInput.type = 'text';
+      labelInput.placeholder = 'Toma sin nombre';
+      labelInput.value = rec.label || '';
+      labelInput.maxLength = 60;
+      labelInput.addEventListener('change', () => updateRecording(rec.id, { label: labelInput.value.trim() }));
+
+      const meta = document.createElement('span');
+      meta.className = 'rec-meta';
+      meta.textContent = `${dateLabel} · ${durLabel}`;
+
+      top.appendChild(labelInput);
+      top.appendChild(meta);
+
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.src = url;
+
+      const actions = document.createElement('div');
+      actions.className = 'rec-row-actions';
+
+      const mp3Btn = document.createElement('button');
+      mp3Btn.className = 'rec-mp3-btn';
+      mp3Btn.dataset.id = rec.id;
+      mp3Btn.innerHTML = ICON_DOWNLOAD + '<span>MP3 192kbps</span>';
+      mp3Btn.addEventListener('click', onDownloadMp3Click);
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'rec-del-btn';
+      delBtn.dataset.id = rec.id;
+      delBtn.innerHTML = ICON_TRASH + '<span>Borrar</span>';
+      delBtn.addEventListener('click', onDeleteRecordingClick);
+
+      actions.appendChild(mp3Btn);
+      actions.appendChild(delBtn);
+
+      row.appendChild(top);
+      row.appendChild(audio);
+      row.appendChild(actions);
+      libraryList.appendChild(row);
+    }
+  }
+
+  /* ============================================================
+     9. CARGA INICIAL
+     ============================================================ */
+
+  (async function init(){
+    const savedScript = await idbGet('script');
+    scriptInput.value = (typeof savedScript === 'string' && savedScript.trim()) ? savedScript : DEFAULT_SCRIPT;
+    updateStats();
+
+    // migración: versiones anteriores solo guardaban una última grabación
+    const legacyRecording = await idbGet('lastRecording');
+    if (legacyRecording){
+      await addRecording({
+        blob: legacyRecording,
+        mime: legacyRecording.type || 'audio/webm',
+        ext: extFromMime(legacyRecording.type),
+        label: '',
+        createdAt: Date.now(),
+        durationMs: 0
+      });
+      await idbDelete('lastRecording');
+    }
+
+    await renderRecordingsLibrary();
+  })();
+
+})();
+</script>
+</body>
+</html>
