@@ -1423,7 +1423,9 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
         audio: {
           noiseSuppression: true,
           echoCancellation: true,
-          autoGainControl: true
+          autoGainControl: false,
+          sampleRate: 48000,
+          channelCount: 1
         }
       });
     } catch(err){
