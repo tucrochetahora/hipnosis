@@ -263,6 +263,60 @@
     letter-spacing: 0.02em;
   }
 
+  .voice-row{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 20px 0;
+    flex-wrap: wrap;
+  }
+  .voice-sep{
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--text-dim);
+  }
+  .voice-badge{
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    padding: 3px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-dim);
+    transition: background 0.4s ease, border-color 0.4s ease, color 0.4s ease;
+  }
+  .voice-badge strong{ font-weight: 600; }
+  .voice-badge[data-level="bajo"], .voice-badge[data-level="lento"]{
+    border-color: var(--accent-dim);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .voice-badge[data-level="susurro"], .voice-badge[data-level="muy-lento"]{
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-2);
+  }
+  .voice-badge[data-level="ascendente"], .voice-badge[data-level="rapido"]{
+    border-color: var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+  }
+  .voice-badge.changed{
+    animation: badgePulse 1.1s ease;
+  }
+  @keyframes badgePulse{
+    0%{ box-shadow: 0 0 0 0 rgba(201,162,74,0.55); }
+    35%{ box-shadow: 0 0 0 6px rgba(201,162,74,0); }
+    100%{ box-shadow: 0 0 0 0 rgba(201,162,74,0); }
+  }
+
+  .next-voice-hint{
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--text-dim);
+  }
+
   .top-bar{
     display: flex;
     justify-content: space-between;
@@ -642,6 +696,7 @@
     .ring-fill{ transition: none !important; }
     .stage > *{ animation: none; }
     #ambient-bg::before, #ambient-bg::after{ animation: none; }
+    .voice-badge.changed{ animation: none; }
   }
 </style>
 </head>
@@ -665,8 +720,11 @@
       <p class="hint">
         Formato reconocido: cualquier texto entre pausas, encabezados de segmento como
         <code>### SEGMENTO 1 — TÍTULO</code>, acotaciones entre <code>[corchetes]</code>
-        (se muestran pero no se cronometran), y <code>**negrita**</code> para la palabra
-        de poder. Los cambios se guardan automáticamente en este navegador.
+        (se muestran pero no se cronometran), <code>**negrita**</code> para la palabra
+        de poder, y <code>(voz: bajo, lento)</code> para indicar volumen
+        (<code>normal</code> / <code>bajo</code> / <code>susurro</code> / <code>subiendo</code>)
+        y ritmo (<code>normal</code> / <code>lento</code> / <code>muy lento</code> / <code>rápido</code>)
+        — se mantiene hasta la siguiente marca. Los cambios se guardan automáticamente en este navegador.
       </p>
 
       <div class="script-stats" id="script-stats">
@@ -675,6 +733,7 @@
         <div class="stat"><span class="stat-value" id="stat-pauses">—</span><span class="stat-label">pausas</span></div>
         <div class="stat"><span class="stat-value" id="stat-silence">—</span><span class="stat-label">silencio total</span></div>
         <div class="stat"><span class="stat-value" id="stat-words">—</span><span class="stat-label">palabras</span></div>
+        <div class="stat"><span class="stat-value" id="stat-voice">—</span><span class="stat-label">indicaciones de voz</span></div>
       </div>
 
       <div class="setup-actions">
@@ -691,6 +750,11 @@
   <div id="player-screen">
     <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
     <div class="time-row"><span class="time-label" id="time-label">0:00 / 0:00 · estimado</span></div>
+    <div class="voice-row" id="voice-row">
+      <span class="voice-badge" id="voice-vol-badge" data-level="normal">volumen: <strong id="voice-vol-label">normal</strong></span>
+      <span class="voice-sep">·</span>
+      <span class="voice-badge" id="voice-pace-badge" data-level="normal">ritmo: <strong id="voice-pace-label">normal</strong></span>
+    </div>
 
     <div class="top-bar">
       <div class="wordmark">presente</div>
@@ -745,11 +809,11 @@
      0. GUION DE EJEMPLO (precargado la primera vez)
      ============================================================ */
 
-  const DEFAULT_SCRIPT = `[Voz: registro bajo, lento, melódico; enfatiza las **negritas** alargando ligeramente la palabra; NO leer en voz alta las acotaciones entre corchetes, ni la palabra "pausa", ni los segundos indicados — son silencio real, cronometrado.]
+  const DEFAULT_SCRIPT = `[Voz: registro bajo, lento, melódico; enfatiza las **negritas** alargando ligeramente la palabra; NO leer en voz alta las acotaciones entre corchetes ni las indicaciones técnicas entre paréntesis — son instrucción, no texto. Cada indicación de voz marca un volumen y un ritmo que valen hasta la siguiente; el reproductor las muestra como indicador en pantalla mientras lees.]
 
 ### SEGMENTO 0 — INTRODUCCIÓN HABLADA
 
-[Voz normal, no es la voz de trance. Se lee antes de iniciar el audio.]
+[Voz normal, no es la voz de trance. Se lee antes de iniciar el audio.] (voz: normal)
 
 Antes de empezar, algo breve que vale la pena tener claro:
 
@@ -771,7 +835,17 @@ Si tu respuesta interna es sí, puedes continuar con el audio.
 
 ### SEGMENTO 1 — TRANCE INICIAL (0:00–2:00)
 
-[Solo sonido de fondo: lluvia suave o pulso binaural 4–7 Hz. Si hay antecedente de mareo o desorientación, usar únicamente lluvia o ruido blanco, nunca binaural. No se lee ningún texto en este segmento.]
+[A partir de aquí, voz de trance: más baja y más lenta que tu voz normal — el volumen bajo es lo que absorbe la atención, no el énfasis.] (voz: bajo, lento)
+
+De tanto en tanto, vas a escuchar sonidos a tu alrededor. (pausa 3 segundos) Quiero que te des cuenta de que cualquiera de esos sonidos te va a ayudar a relajarte más cómodamente… (pausa 3 segundos) y a enfocarte todavía más en esta experiencia.
+
+(pausa 5 segundos)
+
+Y el sonido de mi voz… (pausa 3 segundos) y el significado detrás de ella… (pausa 3 segundos) te va a seguir a donde vayas, durante todo este tiempo.
+
+(pausa 5 segundos)
+
+[Solo sonido de fondo: lluvia suave o pulso binaural 4–7 Hz. Si hay antecedente de mareo o desorientación, usar únicamente lluvia o ruido blanco, nunca binaural. No se lee más texto en este segmento.]
 
 (pausa 120 segundos)
 
@@ -817,6 +891,8 @@ Y sigue bajando, por tu espalda… (pausa 3 segundos) por tus caderas… (pausa 
 
 (pausa 10 segundos)
 
+[El punto más profundo de la inducción: bajá casi a un susurro y estirá aún más el ritmo — como bajar la voz en una charla íntima, donde el resto del mundo se apaga.] (voz: susurro, muy lento)
+
 Y ahora, con todo tu cuerpo relajado, de la cabeza a los pies… (pausa 5 segundos) voy a contar de cinco a uno… (pausa 3 segundos) y con cada número que digo, te vas a sentir el doble de relajado de lo que estabas con el anterior.
 
 (pausa 5 segundos)
@@ -828,6 +904,8 @@ Cinco… (pausa 3 segundos) más relajado. (pausa 3 segundos) Cuatro… (pausa 3
 (pausa 15 segundos)
 
 ### SEGMENTO 3 — SUGESTIONES (5:30–13:00)
+
+[De vuelta a la voz de trance sostenible — el susurro anterior fue solo para ese instante de mayor profundidad.] (voz: bajo, lento)
 
 Lo que sientes no es tu enemigo. (pausa 3 segundos) Es información. (pausa 3 segundos) Y toda información se puede usar.
 
@@ -879,7 +957,13 @@ Notarás, quizás esta misma semana, que tu respiración se hace más lenta de f
 
 [Silencio con sonido ambiente.] (pausa 120 segundos)
 
-Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundos) o dos… (pausa 3 segundos) o tres respiraciones más profundas. (pausa 5 segundos) Puedes mover los dedos de las manos, de los pies. (pausa 3 segundos) Estirarte, si tu cuerpo lo pide. (pausa 5 segundos) Y, a tu propio ritmo, abrir los ojos… (pausa 5 segundos) despierto, descansado, y **presente**.
+[El camino de vuelta espeja al de entrada: volumen y ritmo empiezan a revertirse, gradualmente, hacia tu voz normal.] (voz: bajo, normal)
+
+Y cada vez que vuelvas a escuchar este audio… (pausa 3 segundos) vas a notar que entras en este estado… (pausa 3 segundos) más rápido… (pausa 3 segundos) y más profundo que la vez anterior.
+
+(pausa 5 segundos)
+
+Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundos) o dos… (pausa 3 segundos) o tres respiraciones más profundas. (pausa 5 segundos) (voz: subiendo, rápido) Puedes mover los dedos de las manos, de los pies. (pausa 3 segundos) Estirarte, si tu cuerpo lo pide. (pausa 5 segundos) Y, a tu propio ritmo, abrir los ojos… (pausa 5 segundos) (voz: normal) despierto, descansado, y **presente**.
 
 (pausa 10 segundos)
 
@@ -1001,7 +1085,46 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
      2. PARSER DEL GUION
      ============================================================ */
 
-  const PAUSE_RE = /\(\s*pausa\s+(\d+)\s*segundos?[^)]*\)/gi;
+  const MARKER_RE = /\(\s*pausa\s+(\d+)\s*segundos?[^)]*\)|\(\s*voz\s*:\s*([^)]+)\)/gi;
+
+  function normalizeToken(s){
+    return s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
+
+  const VOICE_TOKEN_MAP = {
+    'normal': { volume: 'normal', pace: 'normal' },
+    'bajo': { volume: 'bajo' },
+    'baja': { volume: 'bajo' },
+    'susurro': { volume: 'susurro' },
+    'susurrando': { volume: 'susurro' },
+    'subiendo': { volume: 'ascendente' },
+    'ascendente': { volume: 'ascendente' },
+    'creciendo': { volume: 'ascendente' },
+    'lento': { pace: 'lento' },
+    'lenta': { pace: 'lento' },
+    'muy lento': { pace: 'muy-lento' },
+    'muy lenta': { pace: 'muy-lento' },
+    'rapido': { pace: 'rapido' },
+    'agil': { pace: 'rapido' },
+    'acelerando': { pace: 'rapido' }
+  };
+
+  function parseVoiceTokens(raw){
+    const tokens = raw.split(',').map(normalizeToken).filter(Boolean);
+    const hasExplicitVolume = tokens.some(t => t !== 'normal' && VOICE_TOKEN_MAP[t] && VOICE_TOKEN_MAP[t].volume);
+    const hasExplicitPace = tokens.some(t => t !== 'normal' && VOICE_TOKEN_MAP[t] && VOICE_TOKEN_MAP[t].pace);
+    const result = {};
+    tokens.forEach(tok => {
+      if (tok === 'normal'){
+        if (!hasExplicitVolume) result.volume = 'normal';
+        if (!hasExplicitPace) result.pace = 'normal';
+        return;
+      }
+      const mapped = VOICE_TOKEN_MAP[tok];
+      if (mapped) Object.assign(result, mapped);
+    });
+    return result;
+  }
 
   function escapeHtml(s){
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1034,12 +1157,16 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     const seq = [];
     let lastIndex = 0;
     let match;
-    PAUSE_RE.lastIndex = 0;
-    while ((match = PAUSE_RE.exec(raw)) !== null){
+    MARKER_RE.lastIndex = 0;
+    while ((match = MARKER_RE.exec(raw)) !== null){
       const before = raw.slice(lastIndex, match.index);
       pushTextBlocks(seq, before);
-      seq.push({ type: 'pause', seconds: parseInt(match[1], 10) });
-      lastIndex = PAUSE_RE.lastIndex;
+      if (match[1] !== undefined){
+        seq.push({ type: 'pause', seconds: parseInt(match[1], 10) });
+      } else {
+        seq.push({ type: 'voice', ...parseVoiceTokens(match[2]) });
+      }
+      lastIndex = MARKER_RE.lastIndex;
     }
     pushTextBlocks(seq, raw.slice(lastIndex));
     return seq;
@@ -1064,7 +1191,7 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
   }
 
   function analyzeScript(seq){
-    let cum = 0, pauseSeconds = 0, pauseCount = 0, segmentCount = 0, wordCount = 0;
+    let cum = 0, pauseSeconds = 0, pauseCount = 0, segmentCount = 0, wordCount = 0, voiceMarkCount = 0;
     for (const item of seq){
       item.startAt = cum;
       if (item.type === 'pause'){
@@ -1075,13 +1202,31 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
         const words = item.text.trim().split(/\s+/).filter(Boolean).length;
         wordCount += words;
         item.duration = Math.max(1.2, (words / READING_WPM) * 60);
+      } else if (item.type === 'voice'){
+        item.duration = 0;
+        voiceMarkCount++;
       } else {
         if (item.type === 'header') segmentCount++;
         item.duration = 1.5;
       }
       cum += item.duration;
     }
-    return { totalSeconds: cum, pauseSeconds, pauseCount, segmentCount, wordCount };
+    return { totalSeconds: cum, pauseSeconds, pauseCount, segmentCount, wordCount, voiceMarkCount };
+  }
+
+  const DEFAULT_VOICE_STATE = { volume: 'normal', pace: 'normal' };
+
+  function voiceStateAt(index){
+    const state = { ...DEFAULT_VOICE_STATE };
+    const limit = Math.min(index, sequence.length - 1);
+    for (let i = 0; i <= limit; i++){
+      const item = sequence[i];
+      if (item.type === 'voice'){
+        if (item.volume) state.volume = item.volume;
+        if (item.pace) state.pace = item.pace;
+      }
+    }
+    return state;
   }
 
   /* ============================================================
@@ -1114,6 +1259,64 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     timeLabel.textContent = formatMinSec(before) + ' / ' + formatMinSec(totalEstimatedSeconds) + ' · estimado';
   }
 
+  /* ---- indicador de volumen / ritmo de voz ---- */
+
+  const VOLUME_LABEL = { normal: 'normal', bajo: 'bajo', susurro: 'susurro', ascendente: 'subiendo' };
+  const PACE_LABEL = { normal: 'normal', lento: 'lento', 'muy-lento': 'muy lento', rapido: 'ágil' };
+
+  const volBadge = document.getElementById('voice-vol-badge');
+  const volLabel = document.getElementById('voice-vol-label');
+  const paceBadge = document.getElementById('voice-pace-badge');
+  const paceLabel = document.getElementById('voice-pace-label');
+  let lastVoiceState = null;
+
+  function pulseBadge(el){
+    el.classList.remove('changed');
+    void el.offsetWidth; // fuerza reflow para poder reiniciar la animación
+    el.classList.add('changed');
+  }
+
+  function updateVoiceIndicator(){
+    const state = voiceStateAt(idx);
+    volLabel.textContent = VOLUME_LABEL[state.volume];
+    paceLabel.textContent = PACE_LABEL[state.pace];
+    volBadge.dataset.level = state.volume;
+    paceBadge.dataset.level = state.pace;
+
+    if (lastVoiceState){
+      if (lastVoiceState.volume !== state.volume) pulseBadge(volBadge);
+      if (lastVoiceState.pace !== state.pace) pulseBadge(paceBadge);
+    }
+    lastVoiceState = state;
+  }
+
+  function describeVoiceChange(v){
+    const parts = [];
+    if (v.volume) parts.push('volumen ' + VOLUME_LABEL[v.volume]);
+    if (v.pace) parts.push('ritmo ' + PACE_LABEL[v.pace]);
+    return parts.join(' · ');
+  }
+
+  function peekNext(fromIdx){
+    let i = fromIdx;
+    let voiceChange = null;
+    while (i < sequence.length && sequence[i].type === 'voice'){
+      voiceChange = sequence[i];
+      i++;
+    }
+    return { item: sequence[i], voiceChange };
+  }
+
+  function skipVoiceForward(i){
+    while (i < sequence.length && sequence[i].type === 'voice') i++;
+    return i;
+  }
+
+  function skipVoiceBackward(i){
+    while (i > 0 && sequence[i].type === 'voice') i--;
+    return i;
+  }
+
   function clearPauseTimer(){
     if (pauseCancel){ pauseCancel(); pauseCancel = null; }
   }
@@ -1125,10 +1328,14 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     nextBtn.textContent = '';
     nextBtn.innerHTML = 'Siguiente <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
 
-    const next = sequence[idx + 1];
-    const hintHtml = (next && next.type === 'pause')
-      ? `<div class="next-pause-hint">a continuación · pausa ${formatRingLabel(next.seconds)}</div>`
-      : '';
+    const { item: next, voiceChange } = peekNext(idx + 1);
+    let hintHtml = '';
+    if (voiceChange){
+      hintHtml += `<div class="next-voice-hint">a continuación · ${describeVoiceChange(voiceChange)}</div>`;
+    }
+    if (next && next.type === 'pause'){
+      hintHtml += `<div class="next-pause-hint">a continuación · pausa ${formatRingLabel(next.seconds)}</div>`;
+    }
 
     if (item.type === 'header'){
       stage.innerHTML = `<div class="segment-label">${escapeHtml(item.text)}</div>${hintHtml}`;
@@ -1202,6 +1409,7 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
   function renderCurrent(){
     clearPauseTimer();
     updateProgress();
+    updateVoiceIndicator();
 
     if (idx >= sequence.length){ renderEnd(); return; }
     if (idx < 0) idx = 0;
@@ -1212,13 +1420,15 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
   }
 
   function advance(){
-    idx++;
+    idx = skipVoiceForward(idx + 1);
     renderCurrent();
   }
 
   function goBack(){
     clearPauseTimer();
-    if (idx > 0) idx--;
+    if (idx > 0){
+      idx = skipVoiceBackward(idx - 1);
+    }
     renderCurrent();
   }
 
@@ -1261,6 +1471,7 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
   const statPauses = document.getElementById('stat-pauses');
   const statSilence = document.getElementById('stat-silence');
   const statWords = document.getElementById('stat-words');
+  const statVoice = document.getElementById('stat-voice');
 
   let statsTimer = null;
   function updateStats(){
@@ -1273,6 +1484,7 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
       statPauses.textContent = String(stats.pauseCount);
       statSilence.textContent = formatMinSec(stats.pauseSeconds);
       statWords.textContent = String(stats.wordCount);
+      statVoice.textContent = String(stats.voiceMarkCount);
     }, 250);
   }
 
@@ -1293,7 +1505,8 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     }
     totalEstimatedSeconds = analyzeScript(sequence).totalSeconds;
     populateSegmentJump();
-    idx = 0;
+    idx = skipVoiceForward(0);
+    lastVoiceState = null;
     setupScreen.style.display = 'none';
     playerScreen.style.display = 'flex';
     renderCurrent();
@@ -1309,7 +1522,8 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
 
   restartBtn.addEventListener('click', () => {
     clearPauseTimer();
-    idx = 0;
+    idx = skipVoiceForward(0);
+    lastVoiceState = null;
     renderCurrent();
   });
 
