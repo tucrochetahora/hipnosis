@@ -790,6 +790,7 @@
         <span id="rec-label">Grabar audio</span>
       </button>
       <span class="rec-timer" id="rec-timer">00:00</span>
+      <button class="link-btn" id="calibrate-btn">Calibrar ruido de fondo</button>
       <span class="rec-status" id="rec-status"></span>
       <span class="rec-error" id="rec-error"></span>
     </div>
@@ -1587,6 +1588,7 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
   const recTimer = document.getElementById('rec-timer');
   const recStatus = document.getElementById('rec-status');
   const recError = document.getElementById('rec-error');
+  const calibrateBtn = document.getElementById('calibrate-btn');
   const libraryList = document.getElementById('rec-library-list');
 
   let mediaRecorder = null;
@@ -1600,24 +1602,40 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
 
   const RECORD_GAIN = 4; // realce fijo para micrófonos que graban muy bajo, ~12dB
 
-  const NOISE_GATE_THRESHOLD = 0.02; // nivel (sobre la señal SIN realzar) por debajo del cual se trata como silencio/ruido de fondo
-  const NOISE_GATE_RELEASE = 0.006; // qué tan suave se cierra el gate al terminar de hablar (evita cortes bruscos)
-  const NOISE_GATE_ATTACK = 0.6; // qué tan rápido se abre el gate al empezar a hablar
+  const NOISE_GATE_DEFAULT_THRESHOLD = 0.02; // valor de arranque hasta calibrar con el propio micrófono
+  const NOISE_GATE_MARGIN = 2.2; // el umbral calibrado queda esta cantidad de veces por encima del ruido de fondo medido
+  const NOISE_GATE_MIN_THRESHOLD = 0.003;
+  const NOISE_GATE_MAX_THRESHOLD = 0.15;
+  let noiseGateThreshold = NOISE_GATE_DEFAULT_THRESHOLD;
+
+  // seguimiento de nivel RMS (no de pico): el ruido blanco tiene picos instantáneos
+  // tan altos como la voz, pero su energía promedio (RMS) es mucho más baja — por
+  // eso este gate no "titila" al confundir un pico de ruido con una palabra.
+  function createRmsGate(sampleRate, thresholdGetter){
+    const rmsCoef = Math.exp(-1 / (sampleRate * 0.02)); // ventana de ~20ms
+    const attackCoef = Math.exp(-1 / (sampleRate * 0.008)); // abre rápido, ~8ms
+    const releaseCoef = Math.exp(-1 / (sampleRate * 0.25)); // cierra suave, ~250ms
+    let meanSquare = 0;
+    let gateGain = 0;
+    return function processGate(input, output){
+      const threshold = thresholdGetter();
+      for (let i = 0; i < input.length; i++){
+        const sample = input[i];
+        meanSquare = rmsCoef * meanSquare + (1 - rmsCoef) * sample * sample;
+        const rms = Math.sqrt(meanSquare);
+        const target = rms > threshold ? 1 : 0;
+        const coef = target > gateGain ? attackCoef : releaseCoef;
+        gateGain = coef * gateGain + (1 - coef) * target;
+        output[i] = sample * gateGain;
+      }
+    };
+  }
 
   function createNoiseGateNode(ctx){
     const node = ctx.createScriptProcessor(2048, 1, 1);
-    let envelope = 0;
-    let gateGain = 0;
+    const processGate = createRmsGate(ctx.sampleRate, () => noiseGateThreshold);
     node.onaudioprocess = (e) => {
-      const input = e.inputBuffer.getChannelData(0);
-      const output = e.outputBuffer.getChannelData(0);
-      for (let i = 0; i < input.length; i++){
-        const sample = input[i];
-        envelope = Math.max(Math.abs(sample), envelope * 0.995);
-        const target = envelope > NOISE_GATE_THRESHOLD ? 1 : 0;
-        gateGain += (target - gateGain) * (target ? NOISE_GATE_ATTACK : NOISE_GATE_RELEASE);
-        output[i] = sample * gateGain;
-      }
+      processGate(e.inputBuffer.getChannelData(0), e.outputBuffer.getChannelData(0));
     };
     return node;
   }
@@ -1660,7 +1678,75 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
   if (!canRecord){
     recError.textContent = 'Este navegador no permite grabar audio aquí (o el archivo se abrió sin conexión segura). Prueba a abrirlo desde un servidor local (http://localhost).';
     recToggle.disabled = true;
+    calibrateBtn.disabled = true;
   }
+
+  async function calibrateNoiseGate(){
+    if (!canRecord || isRecording) return;
+    calibrateBtn.disabled = true;
+    recToggle.disabled = true;
+    recError.textContent = '';
+    recStatus.textContent = 'Calibrando… quedate en silencio 2 segundos.';
+
+    let calStream;
+    try{
+      calStream = await navigator.mediaDevices.getUserMedia({
+        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, channelCount: 1 }
+      });
+    } catch(err){
+      recStatus.textContent = '';
+      recError.textContent = 'No se pudo acceder al micrófono para calibrar.';
+      calibrateBtn.disabled = false;
+      recToggle.disabled = false;
+      return;
+    }
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const source = ctx.createMediaStreamSource(calStream);
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 90;
+    const processor = ctx.createScriptProcessor(2048, 1, 1);
+    const silentGain = ctx.createGain();
+    silentGain.gain.value = 0; // procesamos el audio pero no lo reproducimos, para evitar realimentación
+
+    const rmsCoef = Math.exp(-1 / (ctx.sampleRate * 0.02));
+    let meanSquare = 0;
+    let maxRms = 0;
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      for (let i = 0; i < input.length; i++){
+        meanSquare = rmsCoef * meanSquare + (1 - rmsCoef) * input[i] * input[i];
+        const rms = Math.sqrt(meanSquare);
+        if (rms > maxRms) maxRms = rms;
+      }
+    };
+
+    source.connect(highpass);
+    highpass.connect(processor);
+    processor.connect(silentGain);
+    silentGain.connect(ctx.destination);
+
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    processor.disconnect();
+    highpass.disconnect();
+    source.disconnect();
+    calStream.getTracks().forEach(t => t.stop());
+    await ctx.close().catch(() => {});
+
+    const measured = Math.max(NOISE_GATE_MIN_THRESHOLD, Math.min(NOISE_GATE_MAX_THRESHOLD, maxRms * NOISE_GATE_MARGIN));
+    noiseGateThreshold = measured;
+    idbSet('noiseGateThreshold', measured);
+
+    recStatus.textContent = `Listo — umbral ajustado a tu micrófono (${measured.toFixed(3)}).`;
+    setTimeout(() => { recStatus.textContent = ''; }, 4000);
+    calibrateBtn.disabled = false;
+    recToggle.disabled = false;
+  }
+
+  calibrateBtn.addEventListener('click', calibrateNoiseGate);
 
   function pickMimeType(){
     const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
@@ -1966,6 +2052,11 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     const savedScript = await idbGet('script');
     scriptInput.value = (typeof savedScript === 'string' && savedScript.trim()) ? savedScript : DEFAULT_SCRIPT;
     updateStats();
+
+    const savedThreshold = await idbGet('noiseGateThreshold');
+    if (typeof savedThreshold === 'number' && savedThreshold > 0){
+      noiseGateThreshold = savedThreshold;
+    }
 
     // migración: versiones anteriores solo guardaban una última grabación
     const legacyRecording = await idbGet('lastRecording');
