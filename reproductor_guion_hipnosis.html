@@ -1616,17 +1616,19 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     // así el gate ya está abriendo ANTES de que la palabra llegue a la salida
     // (sin esto, el gate siempre abre un poco tarde y se "come" el arranque de
     // la palabra, sonando como un chasquido / algo que se despega)
-    const lookaheadSamples = Math.max(1, Math.round(sampleRate * 0.006)); // ~6ms
+    const lookaheadSamples = Math.max(1, Math.round(sampleRate * 0.010)); // ~10ms
     const delayBuffer = new Float32Array(lookaheadSamples);
     let delayIdx = 0;
 
     const rmsCoef = Math.exp(-1 / (sampleRate * 0.005)); // ventana corta (~5ms): detecta el arranque rápido
     const attackCoef = Math.exp(-1 / (sampleRate * 0.003)); // abre casi de inmediato, ~3ms
     const releaseCoef = Math.exp(-1 / (sampleRate * 0.25)); // cierra suave, ~250ms
-    const softKneeRatio = 2.5; // abre gradualmente entre threshold y threshold×2.5, no de un salto
+    const softKneeRatio = 3; // abre gradualmente entre threshold y threshold×3, no de un salto
+    const holdSamples = Math.round(sampleRate * 0.15); // sostiene el gate abierto 150ms tras la última señal
 
     let meanSquare = 0;
     let gateGain = 0;
+    let holdCounter = 0;
 
     return function processGate(input, output){
       const threshold = thresholdGetter();
@@ -1640,6 +1642,16 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
         if (rms <= threshold) target = 0;
         else if (rms >= kneeTop) target = 1;
         else target = (rms - threshold) / (kneeTop - threshold); // rampa suave, no binaria
+
+        // sostenido: mientras haya señal reciente, no dejar que cierre — evita que
+        // una micro-pausa dentro de una misma frase (respiración, consonante suave,
+        // hueco entre palabras) cierre y reabra el gate una y otra vez
+        if (target > 0){
+          holdCounter = holdSamples;
+        } else if (holdCounter > 0){
+          holdCounter--;
+          target = 1;
+        }
 
         const coef = target > gateGain ? attackCoef : releaseCoef;
         gateGain = coef * gateGain + (1 - coef) * target;
