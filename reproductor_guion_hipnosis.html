@@ -1596,26 +1596,64 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
   let recordTimerId = null;
   let isRecording = false;
   let recordAudioCtx = null;
+  let recordGateNode = null;
 
   const RECORD_GAIN = 4; // realce fijo para micrófonos que graban muy bajo, ~12dB
+
+  const NOISE_GATE_THRESHOLD = 0.02; // nivel (sobre la señal SIN realzar) por debajo del cual se trata como silencio/ruido de fondo
+  const NOISE_GATE_RELEASE = 0.006; // qué tan suave se cierra el gate al terminar de hablar (evita cortes bruscos)
+  const NOISE_GATE_ATTACK = 0.6; // qué tan rápido se abre el gate al empezar a hablar
+
+  function createNoiseGateNode(ctx){
+    const node = ctx.createScriptProcessor(2048, 1, 1);
+    let envelope = 0;
+    let gateGain = 0;
+    node.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      const output = e.outputBuffer.getChannelData(0);
+      for (let i = 0; i < input.length; i++){
+        const sample = input[i];
+        envelope = Math.max(Math.abs(sample), envelope * 0.995);
+        const target = envelope > NOISE_GATE_THRESHOLD ? 1 : 0;
+        gateGain += (target - gateGain) * (target ? NOISE_GATE_ATTACK : NOISE_GATE_RELEASE);
+        output[i] = sample * gateGain;
+      }
+    };
+    return node;
+  }
 
   function buildBoostedStream(rawStream){
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioCtx();
     const source = ctx.createMediaStreamSource(rawStream);
+
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 90; // corta zumbido/rumble grave, ajeno a la voz
+
+    const gateNode = createNoiseGateNode(ctx);
+
     const gain = ctx.createGain();
     gain.gain.value = RECORD_GAIN;
+
     const compressor = ctx.createDynamicsCompressor();
     compressor.threshold.value = -30;
     compressor.knee.value = 20;
     compressor.ratio.value = 12;
     compressor.attack.value = 0.002;
     compressor.release.value = 0.15;
+
     const dest = ctx.createMediaStreamDestination();
-    source.connect(gain);
+
+    // orden importante: el gate silencia el ruido de fondo ANTES de aplicar
+    // el realce, para que no haya nada que amplificar durante las pausas
+    source.connect(highpass);
+    highpass.connect(gateNode);
+    gateNode.connect(gain);
     gain.connect(compressor);
     compressor.connect(dest);
-    return { ctx, stream: dest.stream };
+
+    return { ctx, stream: dest.stream, gateNode };
   }
 
   const canRecord = !!(navigator.mediaDevices && window.MediaRecorder);
@@ -1673,6 +1711,7 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     try{
       const boosted = buildBoostedStream(recordStream);
       recordAudioCtx = boosted.ctx;
+      recordGateNode = boosted.gateNode; // referencia viva: sin esto el navegador puede recolectarlo a mitad de grabación
       streamToRecord = boosted.stream;
     } catch(err){
       recordAudioCtx = null; // si el realce falla, grabamos la señal del micrófono tal cual
@@ -1703,6 +1742,7 @@ Y cuando estés listo… (pausa 5 segundos) puedes tomar una… (pausa 3 segundo
     if (recordAudioCtx){
       recordAudioCtx.close().catch(() => {});
       recordAudioCtx = null;
+      recordGateNode = null;
     }
     clearInterval(recordTimerId);
     isRecording = false;
